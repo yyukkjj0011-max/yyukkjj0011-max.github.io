@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>여행 계획 도우미</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --text: #1d2330; --muted: #6b7280;
+    --line: #e3e6ec; --accent: #2563eb; --warn: #b45309; --done: #16a34a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #13161c; --surface: #1c2029; --text: #e7eaf0; --muted: #98a0ae;
+      --line: #2d333f; --accent: #5b8def; --warn: #f59e0b; --done: #4ade80;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #13161c; --surface: #1c2029; --text: #e7eaf0; --muted: #98a0ae;
+    --line: #2d333f; --accent: #5b8def; --warn: #f59e0b; --done: #4ade80;
+  }
+  :root { box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); color-scheme: light; }
+  *, *::before, *::after { box-sizing: inherit; }
+  body { margin: 0; font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; background: var(--bg); color: var(--text); font-size: 15px; }
+  header { padding: 16px; background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; }
+  h1 { font-size: 18px; margin: 0 0 10px; }
+  h2 { font-size: 16px; margin: 18px 0 8px; }
+  nav { display: flex; gap: 6px; flex-wrap: wrap; }
+  nav button { flex: 1; min-width: 70px; }
+  main { padding: 16px; max-width: 720px; margin: 0 auto; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+  .row > * { min-width: 0; }
+  input, select { font: inherit; padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }
+  input[type="text"] { flex: 1; min-width: 100px; }
+  input.num { width: 110px; text-align: right; }
+  input.time { width: 138px; min-width: 138px; }
+  button { font: inherit; padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.small { padding: 3px 8px; font-size: 13px; color: var(--muted); }
+  .muted { color: var(--muted); font-size: 13px; }
+  .warn { color: var(--warn); font-size: 13px; }
+  .done { text-decoration: line-through; color: var(--muted); }
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .summary div { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+  .summary b { display: block; font-size: 18px; margin-top: 4px; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: left; font-size: 14px; }
+  td.r, th.r { text-align: right; }
+  .daybox h3 { font-size: 15px; margin: 0 0 6px; display: flex; justify-content: space-between; }
+  .tag { display: inline-block; font-size: 12px; padding: 2px 6px; border-radius: 6px; background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>여행 계획 도우미</h1>
+  <nav>
+    <button data-tab="pack" class="active">짐</button>
+    <button data-tab="prep">준비물</button>
+    <button data-tab="flight">항공</button>
+    <button data-tab="cost">비용</button>
+    <button data-tab="plan">일정</button>
+  </nav>
+</header>
+<main id="app"></main>
+
+<script>
+(function () {
+  // ---------- 상태 (메모리에만 존재, 새로고침하면 초기화) ----------
+  var uid = 0;
+  function id() { uid += 1; return "i" + uid; }
+  function todayStr() { return new Date().toISOString().slice(0, 10); }
+  function addDays(s, n) {
+    var p = s.split("-");
+    var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n));
+    return d.toISOString().slice(0, 10);
+  }
+
+  var state = {
+    tab: "pack",
+    trip: { dest: "", currency: "엔(JPY)", depart: "2026-12-05", ret: "2026-12-07", names: ["나"], budget: null },
+    pack: [
+      { id: id(), name: "여권", essential: true, done: false },
+      { id: id(), name: "신용카드 / 체크카드", essential: true, done: false },
+      { id: id(), name: "현지 통화 현금", essential: true, done: false },
+      { id: id(), name: "휴대폰 충전기", essential: true, done: false },
+      { id: id(), name: "보조 배터리", essential: false, done: false },
+      { id: id(), name: "변환 어댑터", essential: true, done: false },
+      { id: id(), name: "세면도구", essential: false, done: false },
+      { id: id(), name: "상비약", essential: false, done: false },
+      { id: id(), name: "속옷 / 양말", essential: true, done: false },
+      { id: id(), name: "편한 신발", essential: true, done: false },
+      { id: id(), name: "겉옷 (날씨에 맞게)", essential: false, done: false }
+    ],
+    prep: [
+      { id: id(), name: "여권 유효기간 확인 (6개월 이상)", done: false, link: "" },
+      { id: id(), name: "비자 / 전자여행허가 확인", done: false, link: "" },
+      { id: id(), name: "여행자 보험 가입", done: false, link: "" },
+      { id: id(), name: "숙소 예약 확인", done: false, link: "" },
+      { id: id(), name: "항공권 예약 확인", done: false, link: "" },
+      { id: id(), name: "환전 (현금 / 카드)", done: false },
+      { id: id(), name: "해외 결제 가능 카드 확인", done: false },
+      { id: id(), name: "휴대폰 로밍 또는 eSIM 준비", done: false },
+      { id: id(), name: "긴급연락처 메모", done: false }
+    ],
+    flights: [], // { id, direction, airline, number, depAirport, depTime, arrAirport, arrTime, code, link }
+    costs: [],   // { id, name, date, category, amount }
+    plan: []     // { id, date, start, end, place, amount }
+  };
+
+  var CATEGORIES = ["교통", "숙소", "식비", "입장료", "쇼핑", "기타"];
+  var costSort = false;
+  var lastCat = "교통";
+  var lastPayer = "";
+  var CURRENCIES = ["엔(JPY)", "달러(USD)", "유로(EUR)", "위안(CNY)", "파운드(GBP)", "호주달러(AUD)", "바트(THB)", "동(VND)"];
+
+  function tripDates() {
+    var out = [];
+    if (!state.trip.depart || !state.trip.ret || state.trip.ret < state.trip.depart) return out;
+    var d = state.trip.depart, guard = 0;
+    while (d <= state.trip.ret && guard < 60) { out.push(d); d = addDays(d, 1); guard++; }
+    return out;
+  }
+
+  function fmt(n) { return n == null ? "-" : Math.round(n).toLocaleString("ko-KR"); }
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  }); }
+
+  // ---------- 탭 렌더 ----------
+  function renderPack() {
+    var list = state.pack;
+    var left = list.filter(function (x) { return !x.done; }).length;
+    var html = '<div class="summary"><div>남은 짐<b>' + left + '개</b></div>' +
+      '<div>필수 남음<b>' + list.filter(function (x) { return x.essential && !x.done; }).length + '개</b></div></div>';
+    html += '<div class="card">';
+    list.forEach(function (x) {
+      html += '<div class="row">' +
+        '<input type="checkbox" data-act="toggle" data-list="pack" data-id="' + x.id + '"' + (x.done ? " checked" : "") + '>' +
+        '<span class="' + (x.done ? "done" : "") + '" style="flex:1">' + esc(x.name) + '</span>' +
+        (x.essential ? '<span class="tag">필수</span>' : "") +
+        '<button class="small" data-act="del" data-list="pack" data-id="' + x.id + '">삭제</button></div>';
+    });
+    html += '</div>' +
+      '<div class="row"><input type="text" id="newPack" placeholder="짐 추가 (예: 우산)">' +
+      '<label class="muted"><input type="checkbox" id="newPackEss"> 필수</label>' +
+      '<button class="primary" data-act="addPack">추가</button></div>';
+    return html;
+  }
+
+  function renderPrep() {
+    var list = state.prep;
+    var left = list.filter(function (x) { return !x.done; }).length;
+    var html = '<div class="summary"><div>남은 준비물<b>' + left + '개</b></div></div><div class="card">';
+    list.forEach(function (x) {
+      html += '<div class="row">' +
+        '<input type="checkbox" data-act="toggle" data-list="prep" data-id="' + x.id + '"' + (x.done ? " checked" : "") + '>' +
+        '<span class="' + (x.done ? "done" : "") + '" style="flex:1">' + esc(x.name) + '</span>' +
+        (x.link ? '<a href="' + esc(x.link) + '" target="_blank" rel="noopener" class="tag">링크 열기</a>' : "") +
+        '<button class="small" data-act="del" data-list="prep" data-id="' + x.id + '">삭제</button></div>';
+    });
+    html += '</div><div class="card"><div class="row"><input type="text" id="newPrep" placeholder="준비물 추가">' +
+      '</div><div class="row"><input type="url" id="newPrepLink" placeholder="링크 (항공권·숙소 예약 페이지 주소, 선택)">' +
+      '<button class="primary" data-act="addPrep">추가</button></div></div>';
+    return html;
+  }
+
+  function getNames() {
+    return (state.trip.names || []).filter(function (n) { return n; });
+  }
+
+  function settlement(names, costs, total) {
+    var n = names.length || 1;
+    var share = total / n;
+    var bal = {};
+    names.forEach(function (nm) { bal[nm] = 0; });
+    costs.forEach(function (c) {
+      if (c.payer && bal[c.payer] !== undefined) bal[c.payer] += Number(c.amount) || 0;
+    });
+    names.forEach(function (nm) { bal[nm] -= share; });
+    var debtors = [], creditors = [];
+    names.forEach(function (nm) {
+      if (bal[nm] < -0.5) debtors.push({ n: nm, v: -bal[nm] });
+      else if (bal[nm] > 0.5) creditors.push({ n: nm, v: bal[nm] });
+    });
+    var lines = [];
+    var i = 0, j = 0;
+    while (i < debtors.length && j < creditors.length) {
+      var x = Math.min(debtors[i].v, creditors[j].v);
+      lines.push({ from: debtors[i].n, to: creditors[j].n, amt: Math.round(x) });
+      debtors[i].v -= x; creditors[j].v -= x;
+      if (debtors[i].v < 0.5) i++;
+      if (creditors[j].v < 0.5) j++;
+    }
+    return lines;
+  }
+
+  function renderCost() {
+    var t = state.trip;
+    var cur = esc(t.currency || "");
+    var names = getNames();
+    var n = names.length || 1;
+    var total = 0;
+    state.costs.forEach(function (c) { total += Number(c.amount) || 0; });
+
+    var html = '<div class="card">' +
+      '<div class="row"><input type="text" id="dest" placeholder="목적지" value="' + esc(t.dest) + '"></div>' +
+      '<div class="row"><span class="muted">출발</span><input type="date" id="depart" value="' + t.depart + '">' +
+      '<span class="muted">귀국</span><input type="date" id="ret" value="' + t.ret + '"></div>' +
+      '<div class="row"><select id="currency">' + CURRENCIES.map(function (c) {
+        return '<option' + (c === t.currency ? ' selected' : '') + '>' + c + '</option>';
+      }).join("") + '</select>' +
+      '<input type="text" id="names" placeholder="참여자 (쉼표로 구분, 예: 나,친구1,친구2)" value="' + esc(names.join(",")) + '">' +
+      '</div>' +
+      '<div class="row"><span class="muted">예산</span><input type="number" id="budget" class="num" placeholder="없음" value="' + (t.budget == null ? "" : t.budget) + '" style="width:140px"><span class="muted">' + cur + '</span></div></div>';
+
+    var remain = t.budget == null ? null : t.budget - total;
+    html += '<div class="summary"><div>총 사용액<b>' + fmt(total) + ' ' + cur + '</b></div>' +
+      (remain == null ? '' : '<div>남은 예산<b class="' + (remain < 0 ? 'warn' : '') + '">' + fmt(remain) + ' ' + cur + '</b></div>') + '</div>';
+
+    // 분류별 합계
+    var cat = {};
+    CATEGORIES.forEach(function (c) { cat[c] = 0; });
+    state.costs.forEach(function (c) { cat[c.category || "기타"] = (cat[c.category || "기타"] || 0) + (Number(c.amount) || 0); });
+    html += '<div class="card"><h2 style="margin-top:0">분류별 합계</h2><table>';
+    Object.keys(cat).forEach(function (k) {
+      if (!cat[k]) return;
+      html += '<tr><td>' + esc(k) + '</td><td class="r">' + fmt(cat[k]) + ' ' + cur + '</td></tr>';
+    });
+    if (!total) html += '<tr><td class="muted">사용 내역이 없습니다.</td></tr>';
+    html += '</table></div>';
+
+    // 정산
+    var lines = settlement(names, state.costs, total);
+    html += '<div class="card"><h2 style="margin-top:0">정산</h2>';
+    if (!state.costs.length) html += '<div class="muted">사용 내역을 추가하면 정산이 표시됩니다.</div>';
+    else if (!lines.length) html += '<div class="muted">모두 똑같이 냈어요.</div>';
+    lines.forEach(function (l) {
+      html += '<div class="row"><span style="flex:1"><b>' + esc(l.from) + '</b> → <b>' + esc(l.to) + '</b></span><span>' + fmt(l.amt) + ' ' + cur + '</span></div>';
+    });
+    html += '</div>';
+
+    // 사용 내역
+    var list = state.costs.slice();
+    if (costSort) list.sort(function (a, b) { return (Number(b.amount) || 0) - (Number(a.amount) || 0); });
+    html += '<div class="card"><div class="row"><h2 style="margin:0;flex:1">사용 내역</h2>' +
+      '<button class="small" data-act="toggleSort">' + (costSort ? "입력 순서로" : "금액 큰 순으로") + '</button></div>';
+    if (!list.length) html += '<div class="muted">아직 사용 내역이 없습니다.</div>';
+    list.forEach(function (c) {
+      html += '<div class="row"><span style="flex:1">' + esc(c.name) + ' <span class="muted">· ' + esc(c.category) + ' · ' + esc(c.payer || "") + ' 결제</span></span>' +
+        '<span>' + fmt(c.amount) + ' ' + cur + '</span>' +
+        '<button class="small" data-act="del" data-list="costs" data-id="' + c.id + '">삭제</button></div>';
+    });
+    html += '</div>';
+
+    // 추가
+    html += '<div class="card"><h2 style="margin-top:0">사용 내역 추가</h2><div class="row">' +
+      '<input type="text" id="cN" placeholder="항목 (예: 점심)">' +
+      '<input type="number" step="0.01" class="num" id="cA" placeholder="금액" style="width:110px">' +
+      '</div><div class="row">' +
+      '<select id="cC">' + CATEGORIES.map(function (c) { return "<option" + (c === lastCat ? " selected" : "") + ">" + c + "</option>"; }).join("") + '</select>' +
+      '<select id="cP">' + names.map(function (nm) { return "<option" + (nm === lastPayer ? " selected" : "") + ">" + esc(nm) + "</option>"; }).join("") + '</select>' +
+      '<button class="primary" data-act="addCost">추가</button></div>' +
+      '<div class="row" style="margin-top:8px"><input type="text" id="newPerson" placeholder="사람 추가 (예: 친구2)">' +
+      '<button data-act="addPerson">이름 추가</button></div></div>';
+    return html;
+  }
+
+  function timeWheel(prefix) {
+    var hs = '<option value="">--</option>';
+    for (var h = 0; h < 24; h++) { var hh = (h < 10 ? "0" : "") + h; hs += '<option value="' + hh + '">' + hh + '시</option>'; }
+    var ms = '<option value="">--</option>';
+    for (var m = 0; m < 60; m += 5) { var mm = (m < 10 ? "0" : "") + m; ms += '<option value="' + mm + '">' + mm + '분</option>'; }
+    return '<select id="' + prefix + 'H" class="time">' + hs + '</select>' +
+      '<select id="' + prefix + 'M" class="time">' + ms + '</select>';
+  }
+
+  function readTime(prefix) {
+    var h = document.getElementById(prefix + "H").value;
+    var m = document.getElementById(prefix + "M").value;
+    if (!h) return "";
+    return h + ":" + (m || "00");
+  }
+
+  function renderPlan() {
+    var dates = tripDates();
+    var cur = esc(state.trip.currency || "");
+    var html = '';
+    if (!dates.length) return '<div class="warn">여행 날짜를 비용 탭에서 설정해 주세요.</div>';
+    dates.forEach(function (d, idx) {
+      var items = state.plan.filter(function (p) { return p.date === d; })
+        .sort(function (a, b) { return (a.start || "").localeCompare(b.start || ""); });
+      var daySum = 0;
+      items.forEach(function (p) { daySum += Number(p.amount) || 0; });
+      html += '<div class="card daybox"><h3><span>Day ' + (idx + 1) + ' · ' + d.slice(5) + '</span>' +
+        '<span class="muted">' + fmt(daySum) + ' ' + cur + '</span></h3>';
+      if (!items.length) html += '<div class="muted">일정 없음</div>';
+      items.forEach(function (p) {
+        html += '<div class="row"><b style="min-width:112px;font-size:16px;color:var(--accent)">' + (p.start || "--:--") + (p.end ? " ~ " + p.end : "") + '</b>' +
+          '<span style="flex:1">' + esc(p.place) + '</span>' +
+          '<span class="muted">' + (p.amount ? fmt(p.amount) + ' ' + cur : "") + '</span>' +
+          '<button class="small" data-act="del" data-list="plan" data-id="' + p.id + '">삭제</button></div>';
+      });
+      html += '<div class="row" style="margin-top:6px">' +
+        timeWheel('pS' + idx) + '<span class="muted">~</span>' + timeWheel('pE' + idx) +
+        '<input type="text" id="pP' + idx + '" placeholder="장소 / 활동" style="min-width:140px">' +
+        '<input type="number" step="0.01" class="num" id="pA' + idx + '" placeholder="예상비용" style="width:100px">' +
+        '<button data-act="addPlan" data-date="' + d + '" data-idx="' + idx + '">추가</button></div></div>';
+    });
+    return html;
+  }
+
+  function fmtTime(s) { return s ? s.replace("T", " ") : "-"; }
+
+  function renderFlight() {
+    var html = '';
+    if (!state.flights.length) html += '<div class="muted" style="margin-bottom:8px">등록된 항공편이 없습니다.</div>';
+    state.flights.forEach(function (f) {
+      html += '<div class="card"><div class="row"><span class="tag">' + esc(f.direction) + '</span>' +
+        '<b style="flex:1">' + esc(f.airline) + ' ' + esc(f.number) + '</b>' +
+        (f.link ? '<a href="' + esc(f.link) + '" target="_blank" rel="noopener" class="tag">예약 페이지</a>' : "") +
+        '<button class="small" data-act="del" data-list="flights" data-id="' + f.id + '">삭제</button></div>' +
+        '<div class="row"><span style="flex:1">' + esc(f.depAirport) + ' ' + esc(fmtTime(f.depTime)) + '</span>' +
+        '<span class="muted">→</span>' +
+        '<span style="flex:1">' + esc(f.arrAirport) + ' ' + esc(fmtTime(f.arrTime)) + '</span></div>' +
+        (f.code ? '<div class="muted">예약번호: ' + esc(f.code) + '</div>' : "") + '</div>';
+    });
+    html += '<div class="card"><h2 style="margin-top:0">항공편 추가</h2>' +
+      '<div class="row"><select id="fDir"><option>가는편</option><option>오는편</option></select>' +
+      '<input type="text" id="fAir" placeholder="항공사 (예: 대한항공)">' +
+      '<input type="text" id="fNum" placeholder="편명 (예: KE123)" style="max-width:140px"></div>' +
+      '<div class="row"><input type="text" id="fDepA" placeholder="출발 공항 (예: ICN)" style="max-width:170px">' +
+      '<input type="datetime-local" id="fDepT">' +
+      '<input type="text" id="fArrA" placeholder="도착 공항 (예: NRT)" style="max-width:170px">' +
+      '<input type="datetime-local" id="fArrT"></div>' +
+      '<div class="row"><input type="text" id="fCode" placeholder="예약번호 (선택)" style="max-width:200px">' +
+      '<input type="url" id="fLink" placeholder="예약 확인 페이지 링크 (선택)">' +
+      '<button class="primary" data-act="addFlight">추가</button></div></div>';
+    return html;
+  }
+
+  function flightForm(dir, p) {
+    return '<div class="card"><h2 style="margin-top:0">' + dir + ' 등록</h2>' +
+      '<div class="row"><input type="text" id="' + p + 'Air" placeholder="항공사 (예: 대한항공)">' +
+      '<input type="text" id="' + p + 'Num" placeholder="편명 (예: KE123)" style="max-width:140px"></div>' +
+      '<div class="row"><input type="text" id="' + p + 'DepA" placeholder="출발 공항 (예: ICN)" style="max-width:170px">' +
+      '<input type="datetime-local" id="' + p + 'DepT">' +
+      '<input type="text" id="' + p + 'ArrA" placeholder="도착 공항 (예: NRT)" style="max-width:170px">' +
+      '<input type="datetime-local" id="' + p + 'ArrT"></div>' +
+      '<div class="row"><input type="text" id="' + p + 'Code" placeholder="예약번호 (선택)" style="max-width:200px">' +
+      '<input type="url" id="' + p + 'Link" placeholder="예약 확인 페이지 링크 (선택)">' +
+      '<button class="primary" data-act="addFlight" data-dir="' + dir + '" data-p="' + p + '">추가</button></div></div>';
+  }
+
+  function flightCard(f) {
+    return '<div class="card"><div class="row"><span class="tag">' + esc(f.direction) + '</span>' +
+      '<b style="flex:1">' + esc(f.airline) + ' ' + esc(f.number) + '</b>' +
+      (f.link ? '<a href="' + esc(f.link) + '" target="_blank" rel="noopener" class="tag">예약 페이지</a>' : "") +
+      '<button class="small" data-act="del" data-list="flights" data-id="' + f.id + '">삭제</button></div>' +
+      '<div class="row"><span style="flex:1">' + esc(f.depAirport) + ' ' + esc(fmtTime(f.depTime)) + '</span>' +
+      '<span class="muted">→</span>' +
+      '<span style="flex:1">' + esc(f.arrAirport) + ' ' + esc(fmtTime(f.arrTime)) + '</span></div>' +
+      (f.code ? '<div class="muted">예약번호: ' + esc(f.code) + '</div>' : "") + '</div>';
+  }
+
+  function renderFlightBoth() {
+    var sections = [["가는편", "g"], ["오는편", "r"]];
+    var html = '';
+    sections.forEach(function (s) {
+      var dir = s[0], p = s[1];
+      html += '<h2>' + dir + '</h2>';
+      var mine = state.flights.filter(function (f) { return f.direction === dir; });
+      if (!mine.length) html += '<div class="muted" style="margin-bottom:8px">아직 등록된 ' + dir + '이 없습니다.</div>';
+      mine.forEach(function (f) { html += flightCard(f); });
+      html += flightForm(dir, p);
+    });
+    return html;
+  }
+
+  var renderers = { pack: renderPack, prep: renderPrep, flight: renderFlightBoth, cost: renderCost, plan: renderPlan };
+
+  function render() {
+    document.querySelectorAll("nav button").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-tab") === state.tab);
+    });
+    document.getElementById("app").innerHTML = renderers[state.tab]();
+  }
+
+  // ---------- 이벤트 (위임) ----------
+  document.querySelector("nav").addEventListener("click", function (e) {
+    var t = e.target.getAttribute("data-tab");
+    if (t) { state.tab = t; render(); }
+  });
+
+  document.getElementById("app").addEventListener("click", function (e) {
+    var el = e.target;
+    var act = el.getAttribute("data-act");
+    if (!act) return;
+    var listName = el.getAttribute("data-list");
+    var itemId = el.getAttribute("data-id");
+
+    if (act === "toggle") {
+      var item = state[listName].filter(function (x) { return x.id === itemId; })[0];
+      if (item) item.done = el.checked;
+      render();
+    } else if (act === "del") {
+      state[listName] = state[listName].filter(function (x) { return x.id !== itemId; });
+      render();
+    } else if (act === "addPack") {
+      var n = document.getElementById("newPack").value.trim();
+      if (!n) return;
+      state.pack.push({ id: id(), name: n, essential: document.getElementById("newPackEss").checked, done: false });
+      render();
+    } else if (act === "addPrep") {
+      var p = document.getElementById("newPrep").value.trim();
+      if (!p) return;
+      var lk = document.getElementById("newPrepLink").value.trim();
+      state.prep.push({ id: id(), name: p, done: false, link: lk });
+      render();
+    } else if (act === "addFlight") {
+      var p = el.getAttribute("data-p");
+      var dirName = el.getAttribute("data-dir");
+      var fNum = document.getElementById(p + "Num").value.trim();
+      var fAir = document.getElementById(p + "Air").value.trim();
+      if (!fNum && !fAir) return;
+      state.flights.push({ id: id(), direction: dirName,
+        airline: fAir, number: fNum,
+        depAirport: document.getElementById(p + "DepA").value.trim(),
+        depTime: document.getElementById(p + "DepT").value,
+        arrAirport: document.getElementById(p + "ArrA").value.trim(),
+        arrTime: document.getElementById(p + "ArrT").value,
+        code: document.getElementById(p + "Code").value.trim(),
+        link: document.getElementById(p + "Link").value.trim() });
+      render();
+    } else if (act === "addCost") {
+      var cname = document.getElementById("cN").value.trim();
+      var camt = parseFloat(document.getElementById("cA").value);
+      if (!cname || isNaN(camt)) return;
+      state.costs.push({ id: id(), name: cname, amount: camt,
+        category: document.getElementById("cC").value,
+        payer: document.getElementById("cP").value });
+      render();
+    } else if (act === "addPerson") {
+      var nm = document.getElementById("newPerson").value.trim();
+      if (!nm) return;
+      var cur = state.trip.names || [];
+      if (cur.indexOf(nm) === -1) cur.push(nm);
+      state.trip.names = cur;
+      render();
+    } else if (act === "toggleSort") {
+      costSort = !costSort; render();
+    } else if (act === "addPlan") {
+      var idx = el.getAttribute("data-idx");
+      var place = document.getElementById("pP" + idx).value.trim();
+      if (!place) return;
+      var a = parseFloat(document.getElementById("pA" + idx).value);
+      state.plan.push({ id: id(), date: el.getAttribute("data-date"),
+        start: readTime("pS" + idx),
+        end: readTime("pE" + idx),
+        place: place, amount: isNaN(a) ? 0 : a });
+      render();
+    }
+  });
+
+  document.getElementById("app").addEventListener("change", function (e) {
+    var el = e.target;
+    if (el.id === "depart" || el.id === "ret") {
+      state.trip[el.id] = el.value; render();
+    } else if (el.id === "dest") {
+      state.trip.dest = el.value; render();
+    } else if (el.id === "currency") {
+      state.trip.currency = el.value; render();
+    } else if (el.id === "cC") {
+      lastCat = el.value;
+    } else if (el.id === "cP") {
+      lastPayer = el.value;
+    } else if (el.id === "names") {
+      state.trip.names = el.value.split(",").map(function (x) { return x.trim(); }).filter(function (x) { return x; });
+      if (!state.trip.names.length) state.trip.names = ["나"];
+      render();
+    } else if (el.id === "budget") {
+      state.trip.budget = el.value === "" ? null : parseFloat(el.value);
+      render();
+    } else if (el.id === "people") {
+      state.trip.people = Math.max(1, parseInt(el.value, 10) || 1); render();
+    }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
