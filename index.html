@@ -35,7 +35,7 @@
   .hero {
     position: relative; overflow: hidden;
     background: linear-gradient(120deg, #0ea5e9 0%, #14b8a6 45%, #ff8a5b 100%);
-    color: #fff; padding: 24px 22px 30px; border-radius: 0 0 28px 28px;
+    color: #fff; padding: 24px max(22px, calc(50% - 338px)) 34px; border-radius: 0 0 28px 28px;
     box-shadow: 0 10px 30px rgba(14, 165, 233, .25);
   }
   .hero::after {
@@ -49,7 +49,8 @@
   h3 { font-size: 15px; margin: 0; font-weight: 800; }
 
   nav {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+    position: fixed; left: 50%; transform: translateX(-50%); width: min(100%, 720px); bottom: 0; z-index: 10;
+    border-radius: 18px 18px 0 0;
     display: flex; justify-content: space-around; gap: 4px;
     background: var(--surface); border-top: 1px solid var(--line);
     padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
@@ -144,7 +145,7 @@
   }
   .hero h1 { position: relative; }
   .hero-wave { position: absolute; left: 0; bottom: 0; width: 100%; height: 46px; pointer-events: none; }
-  .watermark { position: absolute; right: 16px; top: 12px; font-size: 92px; opacity: .25; transform: rotate(10deg); pointer-events: none; line-height: 1; }
+  .watermark { position: absolute; right: max(16px, calc(50% - 352px)); top: 12px; font-size: 72px; opacity: .25; transform: rotate(10deg); pointer-events: none; line-height: 1; }
   .card h3 { display: flex; align-items: center; gap: 6px; }
   .hero small { position: relative; display: block; }
   .card {
